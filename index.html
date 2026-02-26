@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shiba Strike: The Search for the Purple Bone</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        :root {
+            --shiba-orange: #e69138;
+            --ui-bg: rgba(26, 28, 30, 0.95);
+            --health-bar: #d33c40;
+            --text-main: #f5f7f8;
+            --elevator-gold: #ffd700;
+            --boss-alert: #ff4d00;
+        }
+
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; background: #0d0d0d; color: var(--text-main); user-select: none; }
+        #game-container { width: 100vw; height: 100vh; }
+        #ui-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 24px; box-sizing: border-box; z-index: 10; }
+        .top-hud { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; }
+        .stats-box { background: var(--ui-bg); padding: 16px; border-radius: 12px; border: 2px solid var(--shiba-orange); min-width: 240px; backdrop-filter: blur(4px); box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+        .health-container { width: 100%; height: 16px; background: #333333; border-radius: 8px; margin-top: 12px; overflow: hidden; border: 1px solid #666666; }
+        #health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, var(--health-bar), #b32d30); transition: width 0.3s ease; }
+        #boss-announcement { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); font-size: 3.5rem; font-weight: 900; color: var(--boss-alert); text-shadow: 0 0 30px rgba(255, 50, 0, 0.8), 0 0 10px white; opacity: 0; transition: opacity 0.3s, transform 0.5s; text-align: center; z-index: 50; letter-spacing: 2px; }
+        .bottom-row { display: flex; justify-content: space-between; align-items: flex-end; width: 100%; }
+        .weapon-wheel { display: flex; gap: 16px; pointer-events: auto; }
+        .weapon-icon { width: 72px; height: 72px; background: var(--ui-bg); border: 2px solid #666666; border-radius: 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 1.5rem; opacity: 0.7; cursor: pointer; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .weapon-icon.active { border-color: var(--shiba-orange); opacity: 1; transform: scale(1.15) translateY(-8px); box-shadow: 0 8px 20px rgba(230, 145, 56, 0.4); }
+        .controls-hint { background: var(--ui-bg); padding: 12px 20px; border-radius: 12px; font-size: 0.8rem; color: #ccaa99; border: 1px solid #775544; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+        #screen-msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; background: var(--ui-bg); padding: 48px; border-radius: 32px; display: none; pointer-events: auto; border: 4px solid var(--shiba-orange); z-index: 9999; box-shadow: 0 20px 50px rgba(0,0,0,0.9); }
+        .btn { background: var(--shiba-orange); color: black; border: none; padding: 14px 40px; font-size: 1.1rem; font-weight: 800; cursor: pointer; border-radius: 12px; margin-top: 24px; transition: transform 0.2s; }
+        .btn:hover { transform: scale(1.05); }
+        #elevator-prompt { position: absolute; top: 20%; left: 50%; transform: translateX(-50%); color: var(--elevator-gold); font-weight: 900; font-size: 1.8rem; text-shadow: 0 0 15px rgba(255, 215, 0, 0.6), 0 0 5px black; display: none; text-align: center; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { transform: translateX(-50%) scale(1); } 50% { transform: translateX(-50%) scale(1.05); } 100% { transform: translateX(-50%) scale(1); } }
+        .icon-btn { background: var(--ui-bg); border: 1px solid var(--shiba-orange); color: white; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; pointer-events: auto; transition: background 0.2s; }
+        .icon-btn:hover { background: #664433; }
+    </style>
+</head>
+<body>
+    <div id="game-container"></div>
+    <div id="boss-announcement">SPECIAL ATTACK!</div>
+    <div id="ui-overlay">
+        <div class="top-hud">
+            <div class="stats-box">
+                <div style="font-weight: 900; color: var(--shiba-orange); display: flex; justify-content: space-between;">
+                    <span>SHIBA INU</span><span id="lives-display">🐾🐾🐾</span>
+                </div>
+                <div class="health-container"><div id="health-fill"></div></div>
+                <div id="level-name" style="margin-top: 12px; font-size: 0.85rem; font-weight: bold; color: #ccc;">Floor 1</div>
+            </div>
+            <div id="boss-hud" style="display: none; text-align: center;" class="stats-box">
+                <div id="boss-name" style="font-weight: 900; color: var(--health-bar); text-transform: uppercase; font-size: 1.2rem; letter-spacing: 1px;">BOSS</div>
+                <div class="health-container" style="width: 320px; height: 20px;">
+                    <div id="boss-health-fill" style="background: linear-gradient(90deg, #ff0000, #ff4d00); width: 100%; height: 100%; transition: width 0.2s ease;"></div>
+                </div>
+            </div>
+            <div class="audio-controls" style="display: flex; gap: 8px;">
+                <button class="icon-btn" onclick="gameState.togglePOV()" id="pov-btn">🎥 POV: 1st</button>
+            </div>
+        </div>
+        <div id="elevator-prompt">ELEVATOR OPEN<br><span style="font-size: 1rem; font-weight: normal; color: #fff;">Step into the elevator to ascend</span></div>
+        <div class="bottom-row">
+            <div class="weapon-wheel">
+                <div id="wep-1" class="weapon-icon active" onclick="gameState.setPower(1)" title="Sonic Bark">🔊</div>
+                <div id="wep-2" class="weapon-icon" onclick="gameState.setPower(2)" title="Laser Eyes">👁️</div>
+                <div id="wep-3" class="weapon-icon" onclick="gameState.setPower(3)" title="Golden Paw Slam">🐾</div>
+            </div>
+            <div class="controls-hint"><strong>WASD:</strong> Move & Turn | <strong>UP/DOWN:</strong> Aim Head | <strong>SPACE:</strong> Attack | <strong>1, 2, 3:</strong> Switch Power</div>
+        </div>
+    </div>
+    <div id="screen-msg">
+        <h1 id="msg-title" style="color: var(--shiba-orange); font-size: 3rem; margin-top: 0; text-shadow: 0 4px 10px rgba(0,0,0,0.5);">PAUSE</h1>
+        <p id="msg-body" style="font-size: 1.2rem; margin-bottom: 24px;">Krazy Kitty has your bone!</p>
+        <button class="btn" id="resume-btn" onclick="gameState.resume()">RESUME</button>
+    </div>
+
+    <script>
+        // --- AUDIO ENGINE ---
+        class GameAudio {
+            constructor() { this.ctx = null; this.isInitialized = false; }
+            async init() { if (this.isInitialized) return; this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.isInitialized = true; }
+            playSFX(type) {
+                if (!this.ctx) return; const osc = this.ctx.createOscillator(); const g = this.ctx.createGain();
+                if (type === 'bark') { 
+                    // Roaring large dog bark profile
+                    osc.type = 'sawtooth'; 
+                    osc.frequency.setValueAtTime(120, this.ctx.currentTime); 
+                    osc.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + 0.3); 
+                    
+                    const osc2 = this.ctx.createOscillator();
+                    osc2.type = 'square';
+                    osc2.frequency.setValueAtTime(80, this.ctx.currentTime);
+                    osc2.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + 0.3);
+
+                    g.gain.setValueAtTime(0.8, this.ctx.currentTime); 
+                    g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.35); 
+                    
+                    osc.connect(g); osc2.connect(g); g.connect(this.ctx.destination);
+                    osc.start(); osc.stop(this.ctx.currentTime + 0.4);
+                    osc2.start(); osc2.stop(this.ctx.currentTime + 0.4);
+                    return; // Avoid standard connection setup below
+                }
+                else if (type === 'heal') { osc.type = 'sine'; osc.frequency.setValueAtTime(400, this.ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.2); g.gain.setValueAtTime(0.3, this.ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.2); }
+                else if (type === 'slam') { osc.type = 'triangle'; osc.frequency.setValueAtTime(80, this.ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + 0.5); g.gain.setValueAtTime(0.8, this.ctx.currentTime); g.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.5); }
+                else if (type === 'laser') { osc.type = 'square'; osc.frequency.setValueAtTime(1200, this.ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(2400, this.ctx.currentTime + 0.05); g.gain.setValueAtTime(0.2, this.ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.08); }
+                else if (type === 'alert') { osc.type = 'square'; osc.frequency.setValueAtTime(200, this.ctx.currentTime); osc.frequency.setValueAtTime(400, this.ctx.currentTime + 0.1); g.gain.setValueAtTime(0.2, this.ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.25); }
+                else if (type === 'ding') { osc.type = 'sine'; osc.frequency.setValueAtTime(880, this.ctx.currentTime); osc.frequency.setValueAtTime(1108.73, this.ctx.currentTime + 0.15); g.gain.setValueAtTime(0, this.ctx.currentTime); g.gain.linearRampToValueAtTime(0.6, this.ctx.currentTime + 0.05); g.gain.setValueAtTime(0.6, this.ctx.currentTime + 0.3); g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 1.2); osc.connect(g); g.connect(this.ctx.destination); osc.start(); osc.stop(this.ctx.currentTime + 1.5); return; }
+                else if (type === 'boom') { osc.type = 'sawtooth'; osc.frequency.setValueAtTime(100, this.ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + 0.4); g.gain.setValueAtTime(0.6, this.ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.4); }
+                osc.connect(g); g.connect(this.ctx.destination); osc.start(); osc.stop(this.ctx.currentTime + 0.5);
+            }
+        }
+        const audio = new GameAudio();
+
+        // --- CONFIG ---
+        const CONFIG = {
+            PLAYER_HEALTH: 100, LIVES: 3, BOSS_AGGRO_RANGE: 70, ARENA_SIZE: 160,
+            LEVELS:[
+                { name: "The Basement", boss: "Sir Scratch", color: 0x666666, attack: 'burst', ult: "Cyclone", prop: 'crate', mechanic: 'none', fHex: 0x222222 },
+                { name: "Cold Storage", boss: "Capt. Catnip", color: 0x88cccc, attack: 'spread', ult: "Frostbite", prop: 'ice', mechanic: 'slippery', fHex: 0x6688aa },
+                { name: "Boiler Room", boss: "Boiler Billy", color: 0xcc4400, attack: 'rapid', ult: "Scald", prop: 'boiler', hazard: 'fire_vents', fHex: 0x331111 },
+                { name: "Laundry Labyrinth", boss: "Sudsy Sam", color: 0xaaaaff, attack: 'spread', ult: "Bubble", prop: 'wall', mechanic: 'maze', fHex: 0xdddddd },
+                { name: "Kitchen Chaos", boss: "Gen. Gato", color: 0xa88462, attack: 'burst', ult: "Spicy", prop: 'counter', mechanic: 'sugar_rush', fHex: 0xddddcc },
+                { name: "Server Room", boss: "Cyber Claw", color: 0x22cc22, attack: 'rapid', ult: "Surge", prop: 'server', hazard: 'lasers', fHex: 0x113311 },
+                { name: "The Wine Cellar", boss: "Baron B.", color: 0x802222, attack: 'spread', ult: "Volley", prop: 'barrel', mechanic: 'fog', fHex: 0x220011 },
+                { name: "The Library", boss: "Prof. Paws", color: 0x5c4033, attack: 'burst', ult: "Paper Cut", prop: 'bookshelf', mechanic: 'moving_props', fHex: 0x332211 },
+                { name: "Guest Suite", boss: "Duchess Fluff", color: 0xcc6699, attack: 'rapid', ult: "Silk", prop: 'bed', mechanic: 'bounce', fHex: 0x664466 },
+                { name: "The Gallery", boss: "Master Mao", color: 0xcca500, attack: 'spread', ult: "Vibrant", prop: 'art', hazard: 'explosive', fHex: 0xbbbbbb },
+                { name: "Ballroom Blitz", boss: "Waltz Whisker", color: 0xdddddd, attack: 'burst', ult: "Spin", prop: 'pillar', hazard: 'disco', fHex: 0x999999 },
+                { name: "Trophy Room", boss: "Goldie Gaze", color: 0xaa8820, attack: 'rapid', ult: "Glare", prop: 'statue', mechanic: 'tough', fHex: 0x443311 },
+                { name: "Security Hub", boss: "Officer M.", color: 0x222288, attack: 'spread', ult: "Baton", prop: 'desk', hazard: 'spotlights', fHex: 0x1a1a2a },
+                { name: "The Rooftop Pool", boss: "Splash Sphynx", color: 0x22aadd, attack: 'burst', ult: "Tidal", prop: 'chair', mechanic: 'pool', fHex: 0x225588 },
+                { name: "The Penthouse", boss: "Krazy Kitty", color: 0x111111, isFinal: true, attack: 'chaos', ult: "FINAL FURY", prop: 'gold_pillar', hazard: 'all', fHex: 0x111111 }
+            ]
+        };
+
+        const gameState = {
+            level: 0, health: CONFIG.PLAYER_HEALTH, lives: CONFIG.LIVES, currentPower: 1, isPaused: true,
+            enemies: [], projectiles: [], pickups:[], props: [], hazards:[], elevator: null, boss: null, lastAttack: 0,
+            povMode: 0, victoryLighting: false, verticalAim: 0, legPhase: 0, 
+            playerVel: new THREE.Vector3(0,0,0), playerVy: 0,
+            
+            togglePOV() { this.povMode = (this.povMode + 1) % 3; const labels =["1st", "3rd", "Iso"]; document.getElementById('pov-btn').innerText = `🎥 POV: ${labels[this.povMode]}`; if (shibaHead) shibaHead.visible = this.povMode !== 0; },
+            setPower(id) { this.currentPower = id; document.querySelectorAll('.weapon-icon').forEach(el => el.classList.remove('active')); document.getElementById(`wep-${id}`).classList.add('active'); if (aimReticle) { aimReticle.children.forEach(c => c.material.color.setHex(id === 2 ? 0xff0000 : (id === 3 ? 0xffd700 : 0x00ffff))); } this.updateHUD(); },
+            async resume() { await audio.init(); document.getElementById('screen-msg').style.display = 'none'; this.isPaused = false; },
+            showMsg(title, body, btnText = "RESUME") { this.isPaused = true; document.getElementById('msg-title').innerText = title; document.getElementById('msg-body').innerText = body; document.getElementById('resume-btn').innerText = btnText; document.getElementById('screen-msg').style.display = 'block'; },
+            updateHUD() {
+                document.getElementById('health-fill').style.width = `${Math.max(0, this.health)}%`; document.getElementById('lives-display').innerText = '🐾'.repeat(this.lives); document.getElementById('level-name').innerText = `FLOOR ${this.level + 1}: ${CONFIG.LEVELS[this.level].name}`;
+                const bossHud = document.getElementById('boss-hud');
+                if (this.boss && this.boss.health > 0 && this.boss.isAggro) { bossHud.style.display = 'block'; document.getElementById('boss-name').innerText = this.boss.name; document.getElementById('boss-health-fill').style.width = `${(this.boss.health / this.boss.maxHealth) * 100}%`; } else { bossHud.style.display = 'none'; }
+            },
+            announceUlt(name) {
+                const el = document.getElementById('boss-announcement'); el.innerText = name.toUpperCase(); el.style.opacity = '1'; el.style.transform = 'translate(-50%, -50%) scale(1.2)'; audio.playSFX('alert');
+                setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translate(-50%, -50%) scale(1.0)'; }, 1500);
+            }
+        };
+
+        let scene, camera, renderer, playerGroup, shibaBody, shibaHead, shibaHeadContainer, shibaLegs =[];
+        let aimReticle, laserGuide, ambientLight, sunLight, fillLight, keys = {};
+        let generatedCanvases = { floor: null, wall: null };
+
+        function init() {
+            scene = new THREE.Scene(); scene.background = new THREE.Color(0x050508); scene.fog = new THREE.FogExp2(0x050508, 0.007);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputEncoding = THREE.sRGBEncoding;
+            document.getElementById('game-container').appendChild(renderer.domElement);
+
+            generateProceduralTextures();
+
+            playerGroup = new THREE.Group(); createRealisticShiba(playerGroup); scene.add(playerGroup);
+
+            aimReticle = new THREE.Group();
+            const ring = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.35, 32), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 }));
+            const lineMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.9 });
+            const horiz = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.03, 0.03), lineMat); const vert = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.6, 0.03), lineMat);
+            const dot = new THREE.Mesh(new THREE.CircleGeometry(0.05, 16), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+            aimReticle.add(ring, horiz, vert, dot); scene.add(aimReticle);
+
+            laserGuide = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1, 8), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.25 }));
+            laserGuide.rotation.x = Math.PI / 2; scene.add(laserGuide);
+
+            setupInput(); loadLevel(0); animate();
+            gameState.showMsg("SHIBA STRIKE", "The cats have stolen your Purple Bone.\nNavigate the tower and get it back!", "START");
+        }
+
+        function generateProceduralTextures() {
+            const cF = document.createElement('canvas'); cF.width = cF.height = 512; const ctxF = cF.getContext('2d');
+            ctxF.fillStyle = '#181818'; ctxF.fillRect(0, 0, 512, 512); ctxF.strokeStyle = '#0a0a0a'; ctxF.lineWidth = 6;
+            for (let i = 0; i <= 512; i += 64) { ctxF.beginPath(); ctxF.moveTo(i, 0); ctxF.lineTo(i, 512); ctxF.stroke(); ctxF.beginPath(); ctxF.moveTo(0, i); ctxF.lineTo(512, i); ctxF.stroke(); }
+            for(let i=0; i<15000; i++) { ctxF.fillStyle = Math.random()>0.5 ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.06)'; ctxF.fillRect(Math.random()*512, Math.random()*512, 2, 2); }
+            generatedCanvases.floor = cF;
+
+            const cW = document.createElement('canvas'); cW.width = cW.height = 512; const ctxW = cW.getContext('2d');
+            ctxW.fillStyle = '#1a1a1a'; ctxW.fillRect(0, 0, 512, 512);
+            for(let i=0; i<512; i+=64) { const g = ctxW.createLinearGradient(0, i, 0, i+64); g.addColorStop(0, '#262626'); g.addColorStop(0.5, '#3a3a3a'); g.addColorStop(1, '#151515'); ctxW.fillStyle = g; ctxW.fillRect(0, i, 512, 60); ctxW.fillStyle = '#050505'; ctxW.fillRect(0, i+60, 512, 4); }
+            for(let i=0; i<25000; i++) { ctxW.fillStyle = 'rgba(0,0,0,0.3)'; ctxW.fillRect(Math.random()*512, Math.random()*512, 8, 1); }
+            generatedCanvases.wall = cW;
+        }
+
+        function createRealisticShiba(parentGroup) {
+            const shiba = new THREE.Group();
+            const mats = { o: new THREE.MeshStandardMaterial({color:0xcc6611, roughness:0.9}), w: new THREE.MeshStandardMaterial({color:0xf0f0f0, roughness:1.0}), b: new THREE.MeshStandardMaterial({color:0x111111, roughness:0.4}), p: new THREE.MeshStandardMaterial({color:0xffa0bb}), e: new THREE.MeshStandardMaterial({color:0x050505, roughness:0.1}) };
+            const ws = (m) => { m.castShadow = m.receiveShadow = true; return m; };
+
+            shibaBody = new THREE.Group(); shibaBody.position.y = 0.5; shiba.add(shibaBody);
+            const mB = ws(new THREE.Mesh(new THREE.SphereGeometry(1, 32, 32), mats.o)); mB.scale.set(0.35, 0.35, 0.65); shibaBody.add(mB);
+            const ch = ws(new THREE.Mesh(new THREE.SphereGeometry(1, 32, 32), mats.w)); ch.scale.set(0.3, 0.3, 0.55); ch.position.set(0, -0.05, 0.05); shibaBody.add(ch);
+            const tail = ws(new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.08, 16, 32, Math.PI * 1.5), mats.o)); tail.position.set(0, 0.25, 0.55); tail.rotation.set(Math.PI/2, -Math.PI/4, 0); shibaBody.add(tail);
+
+            [[-0.2, 0.45, -0.4],[0.2, 0.45, -0.4],[-0.2, 0.45, 0.35],[0.2, 0.45, 0.35]].forEach((p) => {
+                const lg = new THREE.Group(); const u = ws(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), mats.o)); u.scale.set(0.09, 0.25, 0.09); u.position.y = -0.2; lg.add(u);
+                const paw = ws(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), mats.w)); paw.scale.set(0.1, 0.08, 0.12); paw.position.set(0, -0.42, 0.02); lg.add(paw);
+                lg.position.set(...p); shiba.add(lg); shibaLegs.push(lg);
+            });
+
+            shibaHeadContainer = new THREE.Group(); shibaHeadContainer.position.set(0, 0.75, -0.5); shiba.add(shibaHeadContainer);
+            shibaHead = new THREE.Group(); shibaHeadContainer.add(shibaHead);
+            const sk = ws(new THREE.Mesh(new THREE.SphereGeometry(1, 32, 32), mats.o)); sk.scale.set(0.28, 0.26, 0.28); shibaHead.add(sk);
+            [-0.15, 0.15].forEach(x => { const c = ws(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), mats.w)); c.scale.set(0.18, 0.15, 0.18); c.position.set(x, -0.08, -0.05); shibaHead.add(c); });
+            const sn = ws(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), mats.w)); sn.scale.set(0.12, 0.1, 0.15); sn.position.set(0, -0.05, -0.25); shibaHead.add(sn);
+            const nz = ws(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), mats.b)); nz.scale.set(0.04, 0.03, 0.04); nz.position.set(0, 0.02, -0.14); sn.add(nz);
+            [-0.12, 0.12].forEach(x => { const e = ws(new THREE.Mesh(new THREE.SphereGeometry(1, 16, 16), mats.e)); e.scale.set(0.035, 0.035, 0.035); e.position.set(x, 0.08, -0.24); shibaHead.add(e); const b = new THREE.Mesh(new THREE.SphereGeometry(1,8,8), mats.w); b.scale.set(0.025, 0.025, 0.025); b.position.set(x, 0.18, -0.22); shibaHead.add(b); });
+            
+            const earG = new THREE.ConeGeometry(0.08, 0.2, 16); earG.translate(0, 0.1, 0);[-0.18, 0.18].forEach(x => { const ear = ws(new THREE.Mesh(earG, mats.o)); ear.position.set(x, 0.15, -0.05); ear.rotation.set(-0.2, 0, x < 0 ? 0.3 : -0.3); const inE = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.16, 8), mats.p); inE.position.set(0, 0.1, -0.03); ear.add(inE); shibaHead.add(ear); });
+            shibaHead.visible = false; parentGroup.add(shiba);
+        }
+
+        function createEnemy(x, z, type = 'minion', config = {}) {
+            const group = new THREE.Group(); const isF = config.isFinal; const isB = type === 'boss'; const scl = isB ? (isF ? 3.5 : 2.8) : 1.0;
+            const m = { c: new THREE.MeshStandardMaterial({color: isF?0x1a1a1a:(config.color||0x444444), roughness:0.7}), e: new THREE.MeshStandardMaterial({color: isF?0xff0044:(isB?0xff3300:0xffff00), emissive: isF?0xff0044:(isB?0xff3300:0xffff00), emissiveIntensity:1.5}), w: new THREE.MeshStandardMaterial({color:0xffffff}), mt: new THREE.MeshStandardMaterial({color:0xffd700, metalness:0.9}) };
+            const ws = (ms) => { ms.castShadow = ms.receiveShadow = true; return ms; };
+            const vis = new THREE.Group(); group.add(vis);
+            const bY = 0.45 * scl; const b = ws(new THREE.Mesh(new THREE.SphereGeometry(1, 32, 32), m.c)); b.scale.set(0.22*scl, 0.22*scl, 0.45*scl); b.position.y = bY; vis.add(b);
+            const cL = [];
+            [[0.12, bY, 0.25],[-0.12, bY, 0.25],[0.12, bY, -0.25],[-0.12, bY, -0.25]].forEach(p => { const lg = new THREE.Group(); const lm = ws(new THREE.Mesh(new THREE.CylinderGeometry(0.04*scl, 0.02*scl, 0.4*scl, 12), m.c)); lm.position.y = -0.2*scl; lg.add(lm); const paw = ws(new THREE.Mesh(new THREE.SphereGeometry(0.035*scl, 12, 12), m.w)); paw.position.set(0, -0.4*scl, 0.02*scl); lg.add(paw); lg.position.set(p[0]*scl, p[1], p[2]*scl); vis.add(lg); cL.push(lg); });
+            group.userData = { legs: cL, legPhase: Math.random() * Math.PI };
+            const hd = new THREE.Group(); hd.position.set(0, bY + 0.25*scl, -0.35*scl); vis.add(hd);
+            const sk = ws(new THREE.Mesh(new THREE.SphereGeometry(1, 32, 32), m.c)); sk.scale.set(0.2*scl, 0.18*scl, 0.2*scl); hd.add(sk);
+            const eG = new THREE.ConeGeometry(0.08*scl, 0.25*scl, 16); eG.translate(0, 0.12*scl, 0);[-0.12, 0.12].forEach(x => { const ear = ws(new THREE.Mesh(eG, m.c)); ear.position.set(x*scl, 0.05*scl, -0.05*scl); ear.rotation.set(-0.1, 0, x<0?0.2:-0.2); hd.add(ear); });[-0.08, 0.08].forEach(x => { const eg = new THREE.Group(); const ob = new THREE.Mesh(new THREE.SphereGeometry(1,16,16), m.e); ob.scale.set(0.06*scl, 0.04*scl, 0.06*scl); eg.add(ob); eg.position.set(x*scl, 0.02*scl, -0.16*scl); hd.add(eg); });
+            const tl = ws(new THREE.Mesh(new THREE.TorusGeometry(0.2*scl, 0.04*scl, 16, 32, Math.PI), m.c)); tl.position.set(0, bY + 0.1*scl, 0.4*scl); tl.rotation.set(Math.PI/2, -Math.PI/4, 0); vis.add(tl);
+            
+            if (isB && !isF) {
+                const cr = new THREE.Group(); const bs = ws(new THREE.Mesh(new THREE.TorusGeometry(0.12*scl, 0.02*scl, 16, 32), m.mt)); bs.rotation.x = Math.PI/2; cr.add(bs);
+                for(let i=0; i<5; i++) { const pt = new THREE.Mesh(new THREE.ConeGeometry(0.03*scl, 0.12*scl, 8), m.mt); const a = (i/5)*Math.PI*2; pt.position.set(Math.cos(a)*0.12*scl, 0.06*scl, Math.sin(a)*0.12*scl); pt.lookAt(pt.position.clone().multiplyScalar(2).setY(0.06*scl)); pt.rotateX(Math.PI/2); cr.add(pt); }
+                cr.position.set(0, 0.18*scl, 0); hd.add(cr);
+            }
+            group.position.set(x, 0, z); scene.add(group);
+            let hp = isB ? (isF ? 10000 : 2000 + (gameState.level * 600)) : 100 + (gameState.level * 30);
+            if(config.mechanic === 'tough') hp *= 2.5;
+            return { mesh: group, type: type, health: hp, maxHealth: hp, name: config.boss || "Kitty Minion", attackType: config.attack || 'burst', ultName: config.ult || "Fury Swipe", lastShot: 0, lastUlt: 0, burstCount: 0, lastMelee: 0, color: m.c.color, speed: isB ? 0.15 : (config.mechanic==='sugar_rush'?0.12:0.07), isAggro: false, isFinal: isF };
+        }
+
+        function createHealingBone(x, z) {
+            const b = new THREE.Group(); const m = new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.3});
+            const s = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.6, 16), m); s.rotation.z = Math.PI/2; s.castShadow = true; b.add(s);
+            const eg = new THREE.SphereGeometry(0.12, 16, 16); [[-0.35,0.08,0],[-0.35,-0.08,0],[0.35,0.08,0],[0.35,-0.08,0]].forEach(p => { const ms = new THREE.Mesh(eg, m); ms.position.set(...p); ms.castShadow=true; b.add(ms); });
+            b.add(new THREE.PointLight(0x00ffcc, 1.5, 3)); b.position.set(x, 0.5, z); scene.add(b); return { mesh: b, type: 'heal', amount: 35 };
+        }
+
+        // --- PROP & HAZARD ENGINE ---
+        function spawnProp(type, x, z) {
+            const group = new THREE.Group(); let mat, geo, boxH = 4;
+            const ws = (m) => { m.castShadow = m.receiveShadow = true; return m; };
+            
+            const wallTex = new THREE.CanvasTexture(generatedCanvases.wall);
+            wallTex.wrapS = wallTex.wrapT = THREE.RepeatWrapping; wallTex.repeat.set(1, 1);
+            const baseMat = new THREE.MeshStandardMaterial({color:0xaaaaaa, map: wallTex, roughness: 0.8});
+
+            switch(type) {
+                case 'crate': geo = new THREE.BoxGeometry(4,4,4); mat = baseMat.clone(); mat.color.setHex(0x8B5A2B); break;
+                case 'ice': geo = new THREE.BoxGeometry(4,10,4); mat = new THREE.MeshStandardMaterial({color:0x88ccff, transparent:true, opacity:0.6, roughness:0.1}); boxH=10; break;
+                case 'boiler': geo = new THREE.CylinderGeometry(3,3,12,16); mat = new THREE.MeshStandardMaterial({color:0x333333}); boxH=12; break;
+                case 'wall': geo = new THREE.BoxGeometry(10,16,2); mat = baseMat; boxH=16; break;
+                case 'counter': geo = new THREE.BoxGeometry(8,4,4); mat = baseMat.clone(); mat.color.setHex(0xaaaaaa); break;
+                case 'server': geo = new THREE.BoxGeometry(3,12,4); mat = new THREE.MeshStandardMaterial({color:0x111111}); boxH=12; break;
+                case 'barrel': geo = new THREE.CylinderGeometry(3,3,6,16); mat = baseMat.clone(); mat.color.setHex(0x6b4423); group.rotation.z = Math.PI/2; boxH=6; break;
+                case 'bookshelf': geo = new THREE.BoxGeometry(3,14,8); mat = baseMat.clone(); mat.color.setHex(0x5c4033); boxH=14; break;
+                case 'bed': geo = new THREE.BoxGeometry(5,2,8); mat = new THREE.MeshStandardMaterial({color:0xdddddd}); boxH=2; break;
+                case 'art': geo = new THREE.CylinderGeometry(2,2,4,8); mat = new THREE.MeshStandardMaterial({color:0xffffff}); 
+                            const artpiece = new THREE.Mesh(new THREE.OctahedronGeometry(1.5), new THREE.MeshStandardMaterial({color:Math.random()*0xffffff, wireframe:true})); artpiece.position.y = 4; group.add(artpiece); break;
+                case 'pillar': geo = new THREE.CylinderGeometry(2,2,16,16); mat = new THREE.MeshStandardMaterial({color:0xeeeeee}); boxH=16; break;
+                case 'gold_statue': geo = new THREE.BoxGeometry(4,10,4); mat = new THREE.MeshStandardMaterial({color:0xffd700, metalness:0.8}); boxH=10; break;
+                case 'desk': geo = new THREE.BoxGeometry(5,3,3); mat = baseMat.clone(); mat.color.setHex(0x222222); boxH=3; break;
+                case 'chair': geo = new THREE.BoxGeometry(3,2,6); mat = new THREE.MeshStandardMaterial({color:0xdddddd}); boxH=2; break;
+                case 'gold_pillar': geo = new THREE.CylinderGeometry(3,3,20,8); mat = new THREE.MeshStandardMaterial({color:0xffd700, metalness:0.8}); boxH=20; break;
+                default: geo = new THREE.BoxGeometry(4,4,4); mat = baseMat;
+            }
+            
+            const mesh = ws(new THREE.Mesh(geo, mat)); mesh.position.y = boxH/2; group.add(mesh);
+            group.position.set(x, 0, z); scene.add(group);
+            
+            const box = new THREE.Box3().setFromObject(group);
+            box.expandByScalar(-0.5); 
+            return { mesh: group, box: box, type: type, isDyn: type==='bookshelf' };
+        }
+
+        function spawnHazard(type, x, z) {
+            const group = new THREE.Group(); group.position.set(x, 0, z); scene.add(group);
+            let updateFn = () => {};
+            
+            if (type === 'fire_vents') {
+                const vent = new THREE.Mesh(new THREE.CircleGeometry(4, 16), new THREE.MeshBasicMaterial({color: 0xff4400})); vent.rotation.x = -Math.PI/2; vent.position.y = 0.05; group.add(vent);
+                const flame = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 10, 16), new THREE.MeshBasicMaterial({color: 0xff6600, transparent:true, opacity:0.8, blending: THREE.AdditiveBlending})); flame.position.y = 5; group.add(flame);
+                const l = new THREE.PointLight(0xff4400, 0, 20); l.position.y = 2; group.add(l);
+                updateFn = (time, pGrp) => {
+                    const active = (time % 4000) < 1500;
+                    flame.visible = active; l.intensity = active ? 3 : 0;
+                    if (active && pGrp.position.distanceTo(group.position) < 4.5 && gameState.playerVy <= 1.0) gameState.health -= 0.5;
+                };
+            } else if (type === 'lasers') {
+                const poleM = new THREE.MeshStandardMaterial({color:0x222222});
+                const p1 = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,8), poleM); p1.position.set(-8, 4, 0); group.add(p1);
+                const p2 = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,8), poleM); p2.position.set(8, 4, 0); group.add(p2);
+                const beam = new THREE.Mesh(new THREE.BoxGeometry(16, 0.5, 0.5), new THREE.MeshBasicMaterial({color:0xff0000, transparent:true})); beam.position.y = 4; group.add(beam);
+                const lBox = new THREE.Box3();
+                updateFn = (time, pGrp) => {
+                    const active = (time % 3000) < 1500; beam.material.opacity = active ? 0.9 : 0.1;
+                    if(active) { lBox.setFromObject(beam); const pB = new THREE.Box3().setFromCenterAndSize(pGrp.position.clone().setY(4), new THREE.Vector3(1.5,4,1.5)); if(lBox.intersectsBox(pB)) gameState.health -= 1.0; }
+                };
+            } else if (type === 'spotlights') {
+                const cone = new THREE.Mesh(new THREE.ConeGeometry(8, 20, 16, 1, true), new THREE.MeshBasicMaterial({color:0xffff00, transparent:true, opacity:0.2, side: THREE.DoubleSide})); cone.position.y = 10; group.add(cone);
+                updateFn = (time, pGrp) => {
+                    group.position.x = x + Math.sin(time*0.001)*30; group.position.z = z + Math.cos(time*0.001)*30;
+                    if(pGrp.position.distanceTo(group.position) < 8) { gameState.health -= 0.2; gameState.playerVel.multiplyScalar(0.8); }
+                };
+            } else if (type === 'disco') {
+                const ball = new THREE.Mesh(new THREE.SphereGeometry(3, 8, 8), new THREE.MeshStandardMaterial({color:0xffffff, metalness:1.0, wireframe:true})); ball.position.y = 10; group.add(ball);
+                let lastF = 0;
+                updateFn = (time, pGrp) => {
+                    ball.rotation.y += 0.05;
+                    if(time - lastF > 800) { lastF=time; for(let i=0; i<4; i++){ spawnProjectile(group.position.clone().setY(10), new THREE.Vector3(Math.cos(ball.rotation.y + i*Math.PI/2), 0, Math.sin(ball.rotation.y + i*Math.PI/2)), 0xff00ff, 0.4, 0.5, 200, 15, 'enemy'); } }
+                };
+            }
+
+            gameState.hazards.push({ update: updateFn });
+        }
+
+        function spawnProjectile(pos, dir, color, speed = 0.5, size = 0.3, life = 250, damage = 10, owner = 'player', type = 'default') {
+            let p;
+            if (type === 'laser') { 
+                p = new THREE.Mesh(new THREE.CylinderGeometry(size*0.4, size*0.4, 1.5, 12), new THREE.MeshBasicMaterial({ color, emissive: color, emissiveIntensity: 2 })); p.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); 
+            } 
+            else if (type === 'cone') { 
+                const cG = new THREE.ConeGeometry(size, 1.0, 32, 1, true); cG.translate(0, -0.5, 0); p = new THREE.Mesh(cG, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.5, side: THREE.DoubleSide, blending: THREE.AdditiveBlending })); p.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir); 
+            } 
+            else { 
+                // Removed dynamic PointLights attached to standard projectiles to fix huge performance lag / GPU lockup crash
+                p = new THREE.Mesh(new THREE.SphereGeometry(size, 8, 8), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 2.0 })); 
+            }
+            p.position.copy(pos); scene.add(p);
+            gameState.projectiles.push({ mesh: p, dir: dir.clone().normalize(), speed, life, damage, owner, type, initialLife: life, initialSize: size });
+        }
+
+        function spawnGoldenPaw() {
+            const paw = new THREE.Group(); const mat = new THREE.MeshStandardMaterial({ color: 0xffd700, metalness: 0.9, roughness: 0.2 });
+            const c = new THREE.Mesh(new THREE.SphereGeometry(1.8, 32, 32), mat); c.scale.set(1, 0.4, 1); paw.add(c);
+            for(let i = -1; i <= 1; i++) { const t = new THREE.Mesh(new THREE.SphereGeometry(0.8, 32, 32), mat); t.scale.set(1, 0.5, 1.2); const a = i * 0.6; t.position.set(Math.sin(a) * 2.2, 0, -Math.cos(a) * 2.2 - 0.5); paw.add(t); }
+            const off = new THREE.Vector3(0, 0, -6).applyQuaternion(playerGroup.quaternion); paw.position.copy(playerGroup.position).add(off); paw.position.y = 15; paw.rotation.copy(playerGroup.rotation);
+            paw.add(new THREE.PointLight(0xffd700, 3, 20)); scene.add(paw);
+            gameState.projectiles.push({ mesh: paw, damage: 800, owner: 'player', type: 'slam', life: 60, speed: 0.6, dir: new THREE.Vector3(0,-1,0) });
+        }
+
+        function createElevator() {
+            const eg = new THREE.Group();
+            const fT = new THREE.CanvasTexture(generatedCanvases.wall); fT.wrapS = fT.wrapT = THREE.RepeatWrapping; if (renderer.capabilities.getMaxAnisotropy) fT.anisotropy = renderer.capabilities.getMaxAnisotropy(); fT.repeat.set(1, 1);
+            const fM = new THREE.MeshStandardMaterial({ map: fT, bumpMap: fT, color: 0x444444, metalness: 0.9, roughness: 0.4 });
+            const fL = new THREE.Mesh(new THREE.BoxGeometry(1, 12, 6), fM); fL.position.set(-6, 6, 0); const fR = new THREE.Mesh(new THREE.BoxGeometry(1, 12, 6), fM); fR.position.set(6, 6, 0); const fT2 = new THREE.Mesh(new THREE.BoxGeometry(13, 1, 6), fM); fT2.position.set(0, 11.5, 0); eg.add(fL, fR, fT2);
+            const iM = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8 });
+            const bW = new THREE.Mesh(new THREE.BoxGeometry(11, 12, 0.5), iM); bW.position.set(0, 6, 2.8); const cl = new THREE.Mesh(new THREE.BoxGeometry(11, 0.5, 6), iM); cl.position.set(0, 11, 0); const fl = new THREE.Mesh(new THREE.BoxGeometry(11, 0.2, 6), new THREE.MeshStandardMaterial({ color: 0x222222 })); fl.position.set(0, 0.1, 0); eg.add(bW, cl, fl);
+            const dM = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.9, roughness: 0.2 });
+            const dL = new THREE.Mesh(new THREE.BoxGeometry(5.5, 11, 0.4), dM); dL.position.set(-2.75, 5.5, -0.5); const dR = new THREE.Mesh(new THREE.BoxGeometry(5.5, 11, 0.4), dM); dR.position.set(2.75, 5.5, -0.5); eg.add(dL, dR);
+            const gM = new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.9 });
+            const gL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 11, 0.42), gM); gL.position.set(2.7, 0, 0); dL.add(gL); const gR = new THREE.Mesh(new THREE.BoxGeometry(0.1, 11, 0.42), gM); gR.position.set(-2.7, 0, 0); dR.add(gR);
+            const inds = new THREE.Group(); for(let i=0; i<5; i++) { const dt = new THREE.Mesh(new THREE.CircleGeometry(0.15, 16), new THREE.MeshBasicMaterial({color: 0x222222})); dt.position.set(-1.5 + i*0.75, 11.5, -0.49); inds.add(dt); } eg.add(inds);
+            const iL = new THREE.PointLight(0xffd700, 0, 20); iL.position.set(0, 8, 0); eg.add(iL);
+            eg.position.set(0, 0, -158); scene.add(eg);
+            return { group: eg, doorL: dL, doorR: dR, light: iL, isOpen: false, doorProgress: 0, dingPlayed: false, glowL: gL, glowR: gR, indicators: inds };
+        }
+
+        function createWall(x, z, w, h, d, rotationY = 0) {
+            const wg = new THREE.Group();
+            const tex = new THREE.CanvasTexture(generatedCanvases.wall); tex.wrapS = tex.wrapT = THREE.RepeatWrapping; if (renderer.capabilities.getMaxAnisotropy) tex.anisotropy = renderer.capabilities.getMaxAnisotropy(); tex.repeat.set(w / 16, h / 16);
+            const wM = new THREE.MeshStandardMaterial({ color: 0xffffff, map: tex, bumpMap: tex, bumpScale: 0.05, roughness: 0.8, metalness: 0.3 });
+            const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wM); wall.receiveShadow = wall.castShadow = true; wg.add(wall);
+            wg.position.set(x, h/2, z); wg.rotation.y = rotationY; scene.add(wg); return wg;
+        }
+
+        // Deep cleanup properly clears GPU memory of previous levels
+        function disposeHierarchy(node) {
+            if (node.geometry) node.geometry.dispose();
+            if (node.material) {
+                const materials = Array.isArray(node.material) ? node.material :[node.material];
+                materials.forEach(m => {
+                    if (m.map) m.map.dispose();
+                    if (m.bumpMap) m.bumpMap.dispose();
+                    m.dispose();
+                });
+            }
+            if (node.children) node.children.forEach(disposeHierarchy);
+        }
+
+        function loadLevel(idx) {
+            gameState.level = idx; gameState.victoryLighting = false; const lvl = CONFIG.LEVELS[idx];
+            
+            // Fix VRAM / Memory leaks by aggressively disposing unused materials and geometries
+            const toRem =[]; scene.children.forEach(c => { if (c !== playerGroup && c !== aimReticle && c !== laserGuide && c !== ambientLight && c !== sunLight && c !== fillLight) toRem.push(c); }); 
+            toRem.forEach(c => { disposeHierarchy(c); scene.remove(c); });
+            
+            if (!ambientLight) { ambientLight = new THREE.AmbientLight(0xffffff, 0.3); scene.add(ambientLight); } else ambientLight.intensity = 0.3;
+            if (!sunLight) { sunLight = new THREE.DirectionalLight(0xfff0dd, 0.8); sunLight.position.set(50, 100, 30); sunLight.castShadow = true; sunLight.shadow.mapSize.width = 2048; sunLight.shadow.mapSize.height = 2048; sunLight.shadow.camera.near = 0.5; sunLight.shadow.camera.far = 250; sunLight.shadow.camera.left = sunLight.shadow.camera.bottom = -100; sunLight.shadow.camera.right = sunLight.shadow.camera.top = 100; sunLight.shadow.bias = -0.001; scene.add(sunLight); } else { sunLight.intensity = 0.8; sunLight.position.set(50, 100, 30); }
+            if (!fillLight) { fillLight = new THREE.PointLight(0x444466, 0.5, 200); fillLight.position.set(-50, 40, -50); scene.add(fillLight); }
+
+            scene.fog.color.setHex(lvl.mechanic === 'fog' ? 0x220033 : 0x050508);
+            scene.fog.density = lvl.mechanic === 'fog' ? 0.04 : 0.007;
+
+            const fT = new THREE.CanvasTexture(generatedCanvases.floor); fT.wrapS = fT.wrapT = THREE.RepeatWrapping; if (renderer.capabilities.getMaxAnisotropy) fT.anisotropy = renderer.capabilities.getMaxAnisotropy(); fT.repeat.set(1000/64, 1000/64);
+            const fM = new THREE.MeshStandardMaterial({ color: lvl.fHex, map: fT, bumpMap: fT, bumpScale: 0.03, roughness: 0.6, metalness: 0.4 });
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), fM); floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; scene.add(floor);
+
+            if (lvl.mechanic === 'pool') {
+                const water = new THREE.Mesh(new THREE.PlaneGeometry(80,80), new THREE.MeshStandardMaterial({color: 0x00aaff, transparent:true, opacity:0.6, roughness:0.1, metalness:0.8}));
+                water.rotation.x = -Math.PI/2; water.position.y = 0.1; scene.add(water);
+            }
+
+            const s = CONFIG.ARENA_SIZE; const wH = 16;
+            createWall(0, s, s*2, wH, 2); createWall(-s, 0, s*2, wH, 2, Math.PI/2); createWall(s, 0, s*2, wH, 2, Math.PI/2); createWall(-86, -s, 148, wH, 2); createWall(86, -s, 148, wH, 2);
+
+            gameState.enemies =[]; gameState.pickups =[]; gameState.props =[]; gameState.hazards =[];
+            
+            const eCount = 10 + (idx * 2);
+            for(let i=0; i<eCount; i++) { const a = Math.random() * Math.PI * 2; const d = 50 + Math.random() * 80; gameState.enemies.push(createEnemy(Math.cos(a)*d, Math.sin(a)*d, 'minion', lvl)); }
+            for(let i=0; i<6; i++) { const a = Math.random() * Math.PI * 2; const d = 30 + Math.random() * 90; gameState.pickups.push(createHealingBone(Math.cos(a)*d, Math.sin(a)*d)); }
+            
+            if (lvl.prop === 'wall' && lvl.mechanic === 'maze') {
+                for(let x=-100; x<=100; x+=40) { for(let z=-100; z<=100; z+=40) { if(Math.abs(x)<30 && Math.abs(z)<30) continue; gameState.props.push(spawnProp('wall', x + (Math.random()*10), z + (Math.random()*10))); } }
+            } else {
+                for(let i=0; i<15; i++) { const a = Math.random() * Math.PI * 2; const d = 40 + Math.random() * 80; gameState.props.push(spawnProp(lvl.prop, Math.cos(a)*d, Math.sin(a)*d)); }
+            }
+
+            if (lvl.hazard) {
+                if(lvl.hazard === 'all') {['fire_vents','lasers','spotlights','disco'].forEach((hz,i) => spawnHazard(hz, Math.cos(i*Math.PI/2)*50, Math.sin(i*Math.PI/2)*50)); }
+                else { for(let i=0; i<4; i++) { const a = Math.random() * Math.PI * 2; const d = 30 + Math.random() * 60; spawnHazard(lvl.hazard, Math.cos(a)*d, Math.sin(a)*d); } }
+            }
+
+            gameState.boss = createEnemy(0, -100, 'boss', lvl); gameState.enemies.push(gameState.boss);
+            gameState.elevator = createElevator(); gameState.projectiles =[];
+            document.getElementById('elevator-prompt').style.display = 'none';
+            playerGroup.position.set(0, 0, 0); playerGroup.rotation.y = 0; gameState.verticalAim = 0; gameState.playerVel.set(0,0,0); gameState.playerVy = 0;
+            gameState.updateHUD();
+        }
+
+        function setupInput() {
+            window.addEventListener('keydown', e => { keys[e.code] = true; if(e.code==='Space') performAttack(); if(e.code==='KeyV') gameState.togglePOV(); if(e.code==='Digit1') gameState.setPower(1); if(e.code==='Digit2') gameState.setPower(2); if(e.code==='Digit3') gameState.setPower(3); });
+            window.addEventListener('keyup', e => keys[e.code] = false);
+        }
+
+        function performAttack() {
+            if (gameState.isPaused) return; const now = Date.now();
+            const wDir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(1, 0, 0), gameState.verticalAim).applyQuaternion(playerGroup.quaternion);
+            const origin = playerGroup.position.clone().add(new THREE.Vector3(0, 0.8, -1.0).applyQuaternion(playerGroup.quaternion));
+
+            if (gameState.currentPower === 1) { if (now - gameState.lastAttack < 350) return; gameState.lastAttack = now; spawnProjectile(origin, wDir, 0x00ffff, 0.7, 0.6, 15, 65, 'player', 'cone'); audio.playSFX('bark'); } 
+            else if (gameState.currentPower === 2) { if (now - gameState.lastAttack < 100 || (CONFIG.LEVELS[gameState.level].mechanic==='pool' && Math.abs(playerGroup.position.x)<40 && Math.abs(playerGroup.position.z)<40)) return; gameState.lastAttack = now; const eL = playerGroup.position.clone().add(new THREE.Vector3(-0.12, 0.85, -0.7).applyQuaternion(playerGroup.quaternion)); const eR = playerGroup.position.clone().add(new THREE.Vector3(0.12, 0.85, -0.7).applyQuaternion(playerGroup.quaternion)); spawnProjectile(eL, wDir, 0xff0000, 4.0, 0.15, 50, 25, 'player', 'laser'); spawnProjectile(eR, wDir, 0xff0000, 4.0, 0.15, 50, 25, 'player', 'laser'); audio.playSFX('laser'); } 
+            else if (gameState.currentPower === 3) { if (now - gameState.lastAttack < 1500) return; gameState.lastAttack = now; spawnGoldenPaw(); }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate); const time = Date.now();
+
+            if (!gameState.isPaused) {
+                const lvl = CONFIG.LEVELS[gameState.level];
+                let maxS = (lvl.mechanic === 'pool' && Math.abs(playerGroup.position.x)<40 && Math.abs(playerGroup.position.z)<40) ? 0.25 : 0.6;
+                let acc = lvl.mechanic === 'slippery' ? 0.02 : 0.15; let fric = lvl.mechanic === 'slippery' ? 0.98 : 0.8;
+
+                if (keys['KeyW']) gameState.playerVel.add(new THREE.Vector3(0, 0, -acc).applyQuaternion(playerGroup.quaternion));
+                if (keys['KeyS']) gameState.playerVel.add(new THREE.Vector3(0, 0, acc).applyQuaternion(playerGroup.quaternion));
+                if (keys['KeyA']) playerGroup.rotation.y += 0.06; if (keys['KeyD']) playerGroup.rotation.y -= 0.06;
+
+                gameState.playerVel.multiplyScalar(fric); if(gameState.playerVel.length() > maxS) gameState.playerVel.setLength(maxS);
+                let isMoving = gameState.playerVel.length() > 0.05;
+
+                const pSize = new THREE.Vector3(2.0, 3.0, 2.0); const pBox = new THREE.Box3();
+                
+                playerGroup.position.x += gameState.playerVel.x; pBox.setFromCenterAndSize(playerGroup.position, pSize);
+                for(let prop of gameState.props) { if (pBox.intersectsBox(prop.box)) { if(prop.type==='bed' && playerGroup.position.y===0) gameState.playerVy = 1.0; else if (playerGroup.position.y < prop.box.max.y) { playerGroup.position.x -= gameState.playerVel.x; gameState.playerVel.x = 0; } } }
+                
+                playerGroup.position.z += gameState.playerVel.z; pBox.setFromCenterAndSize(playerGroup.position, pSize);
+                for(let prop of gameState.props) { if (pBox.intersectsBox(prop.box)) { if(prop.type==='bed' && playerGroup.position.y===0) gameState.playerVy = 1.0; else if (playerGroup.position.y < prop.box.max.y) { playerGroup.position.z -= gameState.playerVel.z; gameState.playerVel.z = 0; } } }
+
+                const aL = CONFIG.ARENA_SIZE - 2.0;
+                if(Math.abs(playerGroup.position.x) > aL) playerGroup.position.x = Math.sign(playerGroup.position.x) * aL;
+                if(playerGroup.position.z > aL) playerGroup.position.z = aL;
+                if(playerGroup.position.z < -aL && !(gameState.elevator.isOpen && Math.abs(playerGroup.position.x)<5.0)) playerGroup.position.z = -aL;
+
+                if (gameState.playerVy !== 0 || playerGroup.position.y > 0) {
+                    gameState.playerVy -= 0.06; playerGroup.position.y += gameState.playerVy;
+                    if (playerGroup.position.y < 0) { playerGroup.position.y = 0; gameState.playerVy = 0; }
+                }
+
+                if (isMoving && playerGroup.position.y === 0) {
+                    gameState.legPhase += 0.3; shibaLegs[0].rotation.x = Math.sin(gameState.legPhase)*0.4; shibaLegs[1].rotation.x = -Math.sin(gameState.legPhase)*0.4; shibaLegs[2].rotation.x = -Math.sin(gameState.legPhase)*0.4; shibaLegs[3].rotation.x = Math.sin(gameState.legPhase)*0.4;
+                    shibaBody.rotation.z = Math.sin(gameState.legPhase*0.5)*0.05; shibaBody.position.y = 0.5 + Math.abs(Math.sin(gameState.legPhase))*0.05;
+                } else {
+                    shibaLegs.forEach(l => l.rotation.x = THREE.MathUtils.lerp(l.rotation.x, 0, 0.1)); shibaBody.rotation.z = THREE.MathUtils.lerp(shibaBody.rotation.z, 0, 0.1); shibaBody.position.y = THREE.MathUtils.lerp(shibaBody.position.y, 0.5, 0.1);
+                }
+
+                if (keys['ArrowUp'] || keys['KeyI']) gameState.verticalAim = Math.min(0.6, gameState.verticalAim + 0.05);
+                if (keys['ArrowDown'] || keys['KeyK']) gameState.verticalAim = Math.max(-0.6, gameState.verticalAim - 0.05);
+
+                gameState.props.forEach(p => { if(p.isDyn) { p.mesh.position.x += Math.sin(time*0.001)*0.05; p.box.setFromObject(p.mesh).expandByScalar(-0.5); } });
+                gameState.hazards.forEach(h => h.update(time, playerGroup));
+
+                if (gameState.victoryLighting) {
+                    if (ambientLight.intensity < 1.0) ambientLight.intensity += 0.01; if (sunLight.intensity < 1.5) sunLight.intensity += 0.01;
+                    if (!gameState.elevator.dingPlayed) { audio.playSFX('ding'); gameState.elevator.dingPlayed = true; gameState.elevator.indicators.children.forEach(c => c.material.color.setHex(0x00ffcc)); }
+                    if (gameState.elevator.doorProgress < 1) {
+                        gameState.elevator.doorProgress += 0.006; const ease = 1 - Math.pow(1 - gameState.elevator.doorProgress, 3);
+                        gameState.elevator.doorL.position.x = -2.75 - (ease * 2.7); gameState.elevator.doorR.position.x = 2.75 + (ease * 2.7);
+                        gameState.elevator.glowL.material.opacity = 0.9 * (1 - ease); gameState.elevator.glowR.material.opacity = 0.9 * (1 - ease);
+                        gameState.elevator.light.intensity = ease * 3.0;
+                    } else { gameState.elevator.isOpen = true; }
+                }
+
+                // Updated looping logic: Reverse iteration prevents skipping array items upon splice!
+                for (let i = gameState.pickups.length - 1; i >= 0; i--) {
+                    let p = gameState.pickups[i];
+                    p.mesh.rotation.y += 0.03; p.mesh.rotation.z = Math.sin(time * 0.003) * 0.2; p.mesh.position.y = 0.6 + Math.sin(time * 0.005) * 0.2; 
+                    if (playerGroup.position.distanceTo(p.mesh.position) < 2.5) { gameState.health = Math.min(100, gameState.health + p.amount); audio.playSFX('heal'); scene.remove(p.mesh); gameState.pickups.splice(i, 1); gameState.updateHUD(); }
+                }
+
+                for (let i = gameState.enemies.length - 1; i >= 0; i--) {
+                    const e = gameState.enemies[i];
+                    const dist = e.mesh.position.distanceTo(playerGroup.position);
+                    if (e.type === 'boss' && !e.isAggro && dist < CONFIG.BOSS_AGGRO_RANGE) { e.isAggro = true; gameState.updateHUD(); }
+                    if (e.type === 'minion' || (e.type === 'boss' && e.isAggro)) {
+                        e.mesh.lookAt(playerGroup.position.x, 0, playerGroup.position.z); e.mesh.rotateY(Math.PI);
+                        
+                        // Protected NaN vector evaluation 
+                        let toP = playerGroup.position.clone().sub(e.mesh.position);
+                        if (toP.lengthSq() < 0.001) toP.set(0, 0, 1); else toP.normalize();
+                        
+                        e.mesh.position.add(toP.clone().multiplyScalar(e.speed));
+                        
+                        const eBox = new THREE.Box3().setFromCenterAndSize(e.mesh.position, new THREE.Vector3(2,2,2));
+                        for(let pr of gameState.props) { if(eBox.intersectsBox(pr.box)) { e.mesh.position.sub(toP.clone().multiplyScalar(e.speed*1.2)); } }
+
+                        e.mesh.userData.legPhase += 0.3; const lp = e.mesh.userData.legPhase; const legs = e.mesh.userData.legs;
+                        if(legs && legs.length === 4) { legs[0].rotation.x = Math.sin(lp)*0.5; legs[1].rotation.x = -Math.sin(lp)*0.5; legs[2].rotation.x = -Math.sin(lp)*0.5; legs[3].rotation.x = Math.sin(lp)*0.5; }
+
+                        if (dist < (e.type === 'boss' ? 5.5 : 2.5) && time - e.lastMelee > 1200) { e.lastMelee = time; gameState.health -= e.type === 'boss' ? (e.isFinal ? 35 : 25) : 12; gameState.updateHUD(); } 
+                        else if (e.type === 'boss' && e.isAggro) {
+                            if (time - e.lastUlt > 8000) {
+                                e.lastUlt = time; gameState.announceUlt(e.ultName); const sP = e.mesh.position.clone().add(new THREE.Vector3(0, 4, 0));
+                                const flash = new THREE.PointLight(e.color, 15, 30); flash.position.copy(sP); scene.add(flash); setTimeout(() => scene.remove(flash), 600);
+                                if (e.attackType === 'spread' || e.attackType === 'chaos') { for(let i=0; i<16; i++) { spawnProjectile(sP, new THREE.Vector3(Math.cos(i*0.4), 0, Math.sin(i*0.4)), e.color, 0.45, 0.9, 300, 30, 'enemy'); } } 
+                                else { for(let i=0; i<8; i++) { spawnProjectile(sP, toP.clone().applyAxisAngle(new THREE.Vector3(0,1,0), (i-4)*0.3), e.color, 0.9, 0.7, 200, 25, 'enemy'); } }
+                            }
+                            let cd = e.isFinal ? 800 : 2000; if (e.attackType === 'rapid') cd = 400; if (e.attackType === 'burst') cd = 150;
+                            if (time - e.lastShot > cd) {
+                                const sP = e.mesh.position.clone().add(new THREE.Vector3(0, 2 * (e.isFinal ? 3.5 : 2.8), 0));
+                                if (e.attackType === 'spread') { for(let i=-2; i<=2; i++) spawnProjectile(sP, toP.clone().applyAxisAngle(new THREE.Vector3(0,1,0), i * 0.25), e.color, 0.65, 0.6, 180, 15, 'enemy'); e.lastShot = time; } 
+                                else if (e.attackType === 'burst') { spawnProjectile(sP, toP, e.color, 0.8, 0.6, 200, 18, 'enemy'); e.burstCount++; e.lastShot = time; if (e.burstCount >= 5) { e.burstCount = 0; e.lastShot = time + 1500; } } 
+                                else if (e.attackType === 'rapid') { spawnProjectile(sP, toP, e.color, 1.1, 0.4, 150, 12, 'enemy'); e.lastShot = time; } 
+                                else if (e.attackType === 'chaos') { spawnProjectile(sP, toP.clone().applyAxisAngle(new THREE.Vector3(0,1,0), (Math.random()-0.5)*1.2), 0xff00ff, 0.9, 0.8, 250, 25, 'enemy'); e.lastShot = time - (Math.random()*150); }
+                            }
+                        } else if (e.type === 'minion' && dist < 18 && time - e.lastShot > 3500) { spawnProjectile(e.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0)), toP, e.color, 0.5, 0.35, 120, 8, 'enemy'); e.lastShot = time; }
+                    }
+                }
+
+                // Reverse iteration perfectly secures rendering continuity against removed array elements
+                for (let i = gameState.projectiles.length - 1; i >= 0; i--) {
+                    const p = gameState.projectiles[i];
+                    if (p.type === 'slam') { if (p.mesh.position.y > 0.5) p.mesh.position.y -= p.speed; else { if (p.life === 60) audio.playSFX('slam'); p.life--; } } 
+                    else if (p.type === 'cone') { p.mesh.position.add(p.dir.clone().multiplyScalar(p.speed)); const pr = (p.initialLife - p.life) / p.initialLife; p.mesh.scale.set(1.0+pr*12.0, 1.0+pr*10.0, 1.0+pr*12.0); p.mesh.material.opacity = (p.life / p.initialLife) * 0.5; p.life--; } 
+                    else { p.mesh.position.add(p.dir.clone().multiplyScalar(p.speed)); p.life--; }
+                    
+                    for(let j = gameState.props.length - 1; j >= 0; j--) {
+                        const pr = gameState.props[j];
+                        if (pr.box.containsPoint(p.mesh.position)) {
+                            p.life = 0;
+                            if(pr.type === 'art' && p.owner === 'player') {
+                                audio.playSFX('boom'); scene.remove(pr.mesh); gameState.props.splice(j,1);
+                                for(let a=0; a<8; a++) spawnProjectile(pr.mesh.position.clone().setY(2), new THREE.Vector3(Math.cos(a),0,Math.sin(a)), 0xffa500, 0.6, 0.8, 40, 20, 'enemy');
+                            }
+                            break;
+                        }
+                    }
+
+                    if (p.owner === 'enemy' && p.life > 0) { if (p.mesh.position.distanceTo(playerGroup.position.clone().setY(0.8)) < 2.0) { gameState.health -= p.damage; p.life = 0; gameState.updateHUD(); } }
+                    if (p.owner === 'player' && p.life > 0) {
+                        for(let eIdx = gameState.enemies.length - 1; eIdx >= 0; eIdx--) {
+                            const e = gameState.enemies[eIdx];
+                            if (p.mesh.position.distanceTo(e.mesh.position.clone().setY(e.type==='boss'?1.8:0.6)) < (e.type==='boss'?(e.isFinal?7.0:5.5):2.5)) {
+                                e.health -= p.damage; if (p.type !== 'slam' && p.type !== 'cone' && p.type !== 'laser') p.life = 0;
+                                if (e.health <= 0) { scene.remove(e.mesh); gameState.enemies.splice(eIdx, 1); if (e === gameState.boss) { gameState.boss = null; gameState.victoryLighting = true; document.getElementById('elevator-prompt').style.display = 'block'; } }
+                                gameState.updateHUD();
+                            }
+                        }
+                    }
+                    if (p.life <= 0) { scene.remove(p.mesh); gameState.projectiles.splice(i, 1); }
+                }
+
+                if (gameState.elevator.isOpen && playerGroup.position.z < -159.5) { if (gameState.level < CONFIG.LEVELS.length - 1) loadLevel(gameState.level + 1); else { gameState.showMsg("VICTORY!", "You found the Purple Bone!\nThe cats are defeated.", "RESTART"); loadLevel(0); } }
+                if (gameState.health <= 0) { gameState.lives--; if (gameState.lives <= 0) { gameState.lives = 3; loadLevel(0); gameState.showMsg("GAME OVER", "The cats have taken over.", "RETRY"); } else { gameState.health = 100; loadLevel(gameState.level); } gameState.updateHUD(); }
+            }
+
+            if (shibaHeadContainer) shibaHeadContainer.rotation.x = -gameState.verticalAim;
+            if (shibaHead && !gameState.isPaused) shibaHead.rotation.z = Math.sin(time * 0.005) * 0.03;
+
+            const baseAO = new THREE.Vector3(0, 0, -20).applyAxisAngle(new THREE.Vector3(1, 0, 0), gameState.verticalAim);
+            const aTP = playerGroup.position.clone().add(new THREE.Vector3(0, 0.8, 0)).add(baseAO.applyQuaternion(playerGroup.quaternion));
+            aimReticle.position.copy(aTP); aimReticle.lookAt(camera.position); if (!gameState.isPaused) aimReticle.rotation.z += 0.015;
+
+            const lS = playerGroup.position.clone().add(new THREE.Vector3(0, 0.8, -0.6).applyQuaternion(playerGroup.quaternion));
+            laserGuide.position.copy(lS.clone().lerp(aTP, 0.5)); laserGuide.scale.set(1, lS.distanceTo(aTP), 1); laserGuide.lookAt(aTP); laserGuide.rotateX(Math.PI / 2); laserGuide.material.opacity = 0.05 + Math.sin(time * 0.01) * 0.05;
+
+            let cO;
+            if (gameState.povMode === 0) { cO = new THREE.Vector3(0, 0.9 + gameState.playerVy, -0.2).applyQuaternion(playerGroup.quaternion); camera.position.copy(playerGroup.position.clone().add(cO)); camera.lookAt(aTP); } 
+            else if (gameState.povMode === 1) { cO = new THREE.Vector3(0, 3.5, 7.5).applyQuaternion(playerGroup.quaternion); camera.position.lerp(playerGroup.position.clone().add(cO), 0.15); camera.lookAt(playerGroup.position.clone().add(new THREE.Vector3(0, 1.0, -4))); } 
+            else { cO = new THREE.Vector3(0, 25, 30).applyQuaternion(playerGroup.quaternion); camera.position.lerp(playerGroup.position.clone().add(cO), 0.08); camera.lookAt(playerGroup.position); }
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
